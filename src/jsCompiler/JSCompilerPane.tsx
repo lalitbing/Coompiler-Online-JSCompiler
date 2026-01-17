@@ -3,6 +3,7 @@ import { MonacoPane } from '../editor/MonacoPane';
 import { runnerSrcDoc } from './runnerSrcDoc';
 import MoonIcon from '@/components/ui/moon-icon';
 import BrightnessDownIcon from '@/components/ui/brightness-down-icon';
+import CommandIcon from '@/components/svg/command-icon';
 
 type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
@@ -17,6 +18,25 @@ type ParentToRunnerMessage = { type: 'RUN'; code: string; runId: string } | { ty
 type OutputLine =
   | { kind: 'console'; level: ConsoleLevel; text: string; ts: number; runId: string }
   | { kind: 'error'; text: string; ts: number; runId: string };
+
+type ResolvedTheme = 'dark' | 'light';
+
+const THEME_STORAGE_KEY = 'jscompiler_theme';
+const LEGACY_THEME_MODE_STORAGE_KEY = 'jscompiler_theme_mode';
+
+function getSystemTheme(): ResolvedTheme {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return 'dark';
+  try {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+  } catch {
+    return 'dark';
+  }
+}
+
+function parseUserTheme(saved: string | null): ResolvedTheme | null {
+  if (saved === 'dark' || saved === 'light') return saved;
+  return null;
+}
 
 function makeRunId(): string {
   if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID();
@@ -136,16 +156,50 @@ function ShortcutPill({
 }
 
 export function JSCompilerPane() {
-  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+  const [userTheme, setUserTheme] = useState<ResolvedTheme | null>(() => {
+    // Follow system theme ONLY if user has never explicitly changed theme.
     try {
-      const saved = localStorage.getItem('jscompiler_theme');
-      if (saved === 'dark' || saved === 'light') return saved;
+      const saved = localStorage.getItem(THEME_STORAGE_KEY);
+      const parsed = parseUserTheme(saved);
+      if (parsed) return parsed;
+
+      // Migration from the previous implementation (theme mode).
+      // - 'dark'/'light' => treat as user-set theme
+      // - 'system' or missing => treat as never changed
+      const legacyMode = localStorage.getItem(LEGACY_THEME_MODE_STORAGE_KEY);
+      const legacyParsed = parseUserTheme(legacyMode);
+      if (legacyParsed) return legacyParsed;
+
+      return null;
     } catch {
-      // ignore
+      return null;
     }
-    if (typeof window !== 'undefined' && window.matchMedia?.('(prefers-color-scheme: light)')?.matches) return 'light';
-    return 'dark';
   });
+
+  const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(() => getSystemTheme());
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const update = () => {
+      if (userTheme !== null) return; // user explicitly chose a theme; ignore system changes
+      setSystemTheme(mql.matches ? 'dark' : 'light');
+    };
+
+    // On mount, sync system theme once (only if userTheme is unset).
+    if (userTheme === null) setSystemTheme(mql.matches ? 'dark' : 'light');
+
+    if (typeof mql.addEventListener === 'function') {
+      mql.addEventListener('change', update);
+      return () => mql.removeEventListener('change', update);
+    }
+
+    // Safari (older) fallback
+    mql.addListener(update);
+    return () => mql.removeListener(update);
+  }, [userTheme]);
+
+  const theme: ResolvedTheme = userTheme ?? systemTheme;
 
   const [code, setCode] = useState(() => `// JSCompiler (browser)\n\nconsole.log('Hello from JSCompiler');\n`);
 
@@ -228,9 +282,6 @@ export function JSCompilerPane() {
       const isEnter = e.key === 'Enter';
       const runCombo = isEnter && (isMac ? e.metaKey : e.ctrlKey);
 
-      // Help: "?" (keeps Monaco's toggle-comment shortcut free: ⌘/ or Ctrl/).
-      const helpCombo = e.key === '?';
-
       // Clear output: Cmd+L (mac) / Ctrl+L (win/linux)
       const clearCombo = e.key.toLowerCase() === 'l' && (isMac ? e.metaKey : e.ctrlKey);
 
@@ -239,13 +290,6 @@ export function JSCompilerPane() {
         e.stopPropagation();
         setShortcutsOpen(false);
         run();
-        return;
-      }
-
-      if (helpCombo) {
-        e.preventDefault();
-        e.stopPropagation();
-        setShortcutsOpen(true);
         return;
       }
 
@@ -279,19 +323,26 @@ export function JSCompilerPane() {
 
   const clear = () => setOutput([]);
 
-  const runMod = isMac ? '⌘' : 'Ctrl';
-  const helpHint = '?';
 
   useEffect(() => {
     try {
-      localStorage.setItem('jscompiler_theme', theme);
+      if (userTheme === null) {
+        // If user never changed theme, keep storage empty and remove legacy keys.
+        localStorage.removeItem(THEME_STORAGE_KEY);
+        localStorage.removeItem(LEGACY_THEME_MODE_STORAGE_KEY);
+        return;
+      }
+
+      localStorage.setItem(THEME_STORAGE_KEY, userTheme);
+      localStorage.removeItem(LEGACY_THEME_MODE_STORAGE_KEY);
     } catch {
       // ignore
     }
-  }, [theme]);
+  }, [userTheme]);
 
   const isLight = theme === 'light';
   const share = false;
+  const themeButtonTitle = `Theme: ${theme}. Click to switch to ${theme === 'dark' ? 'light' : 'dark'}.`;
 
   return (
     <div
@@ -311,17 +362,32 @@ export function JSCompilerPane() {
       >
         <div className="h-full flex items-center justify-between gap-3">
           <div className="min-w-0 flex items-center gap-2">
+            <img
+              src="/compiler.svg"
+              alt="Coompiler logo"
+              className="h-6 w-6 shrink-0"
+              draggable={false}
+            />
             <div className={['text-sm font-semibold tracking-wide', isLight ? 'text-[#0b1220]/90' : 'text-[#d7dce2]'].join(' ')}>
               Coompiler
             </div>
             <div className={['hidden sm:block text-[12px] truncate', isLight ? 'text-black/50' : 'text-[#8695b7]'].join(' ')}>
-              Run JavaScript in a sandboxed iframe
+              Monaco based JavaScript Compiler
             </div>
           </div>
 
           <div className="flex items-center gap-2 justify-end">
+            {/*
+              Theme follows system only until the user toggles.
+              After first toggle, we persist the user's choice (dark/light).
+            */}
             <button
-              onClick={() => setTheme((t) => (t === 'dark' ? 'light' : 'dark'))}
+              onClick={() => {
+                setUserTheme((prev) => {
+                  const current = prev ?? systemTheme;
+                  return current === 'dark' ? 'light' : 'dark';
+                });
+              }}
               className={[
                 'h-8 w-8 rounded-md grid place-items-center transition-all duration-150 ease-out',
                 'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
@@ -329,8 +395,8 @@ export function JSCompilerPane() {
                   ? 'text-[#0b1220]/70 hover:bg-black/5 focus:ring-black/15'
                   : 'text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
               ].join(' ')}
-              title={isLight ? 'Switch to dark theme' : 'Switch to light theme'}
-              aria-label="Toggle theme"
+              title={themeButtonTitle}
+              aria-label={`Theme: ${theme}. Click to toggle theme.`}
             >
               {isLight ? <MoonIcon size={16} /> : <BrightnessDownIcon size={16} />}
             </button>
@@ -338,19 +404,16 @@ export function JSCompilerPane() {
             <button
               onClick={() => setShortcutsOpen(true)}
               className={[
-                'hidden sm:inline-flex',
+                'hidden sm:inline-flex items-center gap-2',
                 'h-8 px-2.5 rounded-md text-xs transition-all duration-150 ease-out',
                 'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
                 isLight
                   ? 'text-[#0b1220]/70 hover:bg-black/5 focus:ring-black/15'
                   : 'text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
               ].join(' ')}
-              title="Keyboard shortcuts (?)"
+              title="Keyboard shortcuts"
             >
-              <span className="flex items-center gap-2">
-                <span>Shortcuts</span>
-                <ShortcutPill variant={isLight ? 'light' : 'dark'}>{helpHint}</ShortcutPill>
-              </span>
+              <span>Shortcuts</span>
             </button>
           </div>
         </div>
@@ -411,7 +474,7 @@ export function JSCompilerPane() {
                     <span>Run</span>
                     <span className="hidden sm:inline-flex">
                       <ShortcutPill variant="dark">
-                        <span>{runMod}</span>
+                        {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
                         <EnterArrowIcon className="opacity-90" />
                       </ShortcutPill>
                     </span>
@@ -460,7 +523,13 @@ export function JSCompilerPane() {
                   ].join(' ')}
                   title={isMac ? 'Clear output (⌘+L)' : 'Clear output (Ctrl+L)'}
                 >
-                  Clear
+                  <span className="flex items-center gap-2">
+                    <span>Clear</span>
+                    <ShortcutPill variant={isLight ? 'light' : 'dark'}>
+                      {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
+                      <span>L</span>
+                    </ShortcutPill>
+                  </span>
                 </button>
               </div>
             </div>
@@ -566,16 +635,25 @@ export function JSCompilerPane() {
                   </div>
                   <div className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
                     <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Run code</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⌘ Enter' : 'Ctrl Enter'}
+                    <div
+                      className={[
+                        'font-mono flex items-center gap-1',
+                        isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]',
+                      ].join(' ')}
+                    >
+                      {isMac ? <CommandIcon size={14} /> : <span>Ctrl</span>}
+                      <span>Enter</span>
                     </div>
 
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Open shortcuts help</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>{helpHint}</div>
-
                     <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Clear output</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⌘ L' : 'Ctrl L'}
+                    <div
+                      className={[
+                        'font-mono flex items-center gap-1',
+                        isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]',
+                      ].join(' ')}
+                    >
+                      {isMac ? <CommandIcon size={14} /> : <span>Ctrl</span>}
+                      <span>L</span>
                     </div>
                   </div>
                 </div>
