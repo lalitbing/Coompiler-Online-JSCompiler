@@ -17,7 +17,7 @@ export const defaultWorkspace: WorkspaceState = {
       id: 'pkg',
       parentId: 'root',
       name: 'package.json',
-      content: `{\n  \"name\": \"sample-workspace\",\n  \"private\": true,\n  \"type\": \"module\"\n}\n`,
+      content: `{\n  "name": "sample-workspace",\n  "private": true,\n  "type": "module"\n}\n`,
     },
     vite: {
       type: 'file',

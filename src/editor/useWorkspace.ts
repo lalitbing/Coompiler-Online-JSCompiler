@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { defaultWorkspace } from './defaultWorkspace';
 import type { NodeId, WorkspaceFileDescriptor, WorkspaceNode, WorkspaceState } from './workspaceTypes';
 import { isFile, isFolder, listFiles } from './workspaceTypes';
 
-const STORAGE_KEY = 'vscode_editor_workspace_v1';
+const DRAFT_KEY = 'vscode_editor_workspace_draft_v1';
+const SAVED_KEY = 'vscode_editor_workspace_saved_v1';
 
 function safeParseState(raw: string | null): WorkspaceState | null {
   if (!raw) return null;
@@ -51,11 +52,13 @@ function removeNodeRecursive(state: WorkspaceState, nodeId: NodeId): WorkspaceSt
 }
 
 export function useWorkspace() {
-  const [state, setState] = useState<WorkspaceState>(() => safeParseState(localStorage.getItem(STORAGE_KEY)) ?? defaultWorkspace);
+  const [state, setState] = useState<WorkspaceState>(() => safeParseState(localStorage.getItem(DRAFT_KEY)) ?? safeParseState(localStorage.getItem(SAVED_KEY)) ?? defaultWorkspace);
+  const savedRef = useRef<WorkspaceState>(safeParseState(localStorage.getItem(SAVED_KEY)) ?? defaultWorkspace);
 
   useEffect(() => {
     try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      // Draft autosave so refresh doesn't lose edits.
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(state));
     } catch {
       // ignore persistence failures (quota, privacy mode, etc.)
     }
@@ -77,6 +80,45 @@ export function useWorkspace() {
         },
       };
     });
+  };
+
+  const isDirty = (fileId: NodeId): boolean => {
+    const cur = state.nodes[fileId];
+    const saved = savedRef.current.nodes[fileId];
+    if (!cur || !saved) return false;
+    if (!isFile(cur) || !isFile(saved)) return false;
+    return cur.content !== saved.content || cur.name !== saved.name || cur.parentId !== saved.parentId;
+  };
+
+  const dirtyFileIds = useMemo(() => {
+    const out: NodeId[] = [];
+    for (const f of files) {
+      if (isDirty(f.id)) out.push(f.id);
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [files, state]);
+
+  const saveFile = (fileId: NodeId) => {
+    const cur = state.nodes[fileId];
+    if (!cur || !isFile(cur)) return;
+    try {
+      const nextSaved: WorkspaceState = state;
+      localStorage.setItem(SAVED_KEY, JSON.stringify(nextSaved));
+      savedRef.current = nextSaved;
+    } catch {
+      // ignore
+    }
+  };
+
+  const saveAll = () => {
+    try {
+      const nextSaved: WorkspaceState = state;
+      localStorage.setItem(SAVED_KEY, JSON.stringify(nextSaved));
+      savedRef.current = nextSaved;
+    } catch {
+      // ignore
+    }
   };
 
   const createFile = (parentFolderId: NodeId, name: string, content = ''): NodeId | null => {
@@ -136,6 +178,13 @@ export function useWorkspace() {
 
   const resetWorkspace = () => {
     setState(defaultWorkspace);
+    try {
+      localStorage.setItem(DRAFT_KEY, JSON.stringify(defaultWorkspace));
+      localStorage.setItem(SAVED_KEY, JSON.stringify(defaultWorkspace));
+    } catch {
+      // ignore
+    }
+    savedRef.current = defaultWorkspace;
   };
 
   return {
@@ -143,6 +192,10 @@ export function useWorkspace() {
     files,
     getNode,
     updateFileContent,
+    isDirty,
+    dirtyFileIds,
+    saveFile,
+    saveAll,
     createFile,
     renameNode,
     deleteNode,

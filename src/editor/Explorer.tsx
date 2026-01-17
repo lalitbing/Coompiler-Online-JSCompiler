@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { NodeId, WorkspaceState } from './workspaceTypes';
 import { getNodePath, isFile, isFolder } from './workspaceTypes';
 
@@ -20,18 +20,14 @@ function sortChildren(workspace: WorkspaceState, ids: NodeId[]): NodeId[] {
 }
 
 export function Explorer({ workspace, activeFileIds, onOpenFile, renderFileIcon }: ExplorerProps) {
-  const [expanded, setExpanded] = useState<Record<NodeId, boolean>>(() => ({
-    [workspace.rootId]: true,
-    src: true,
-  }));
-
-  useEffect(() => {
-    setExpanded((prev) => ({ ...prev, [workspace.rootId]: true }));
-  }, [workspace.rootId]);
+  const [expanded, setExpanded] = useState<Record<NodeId, boolean>>(() => ({ src: true }));
 
   const activeSet = useMemo(() => new Set(activeFileIds.filter(Boolean) as NodeId[]), [activeFileIds]);
 
-  const toggle = (id: NodeId) => setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggle = (id: NodeId) => {
+    if (id === workspace.rootId) return;
+    setExpanded((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
 
   const renderNode = (id: NodeId, depth: number): React.ReactNode => {
     const node = workspace.nodes[id];
@@ -39,7 +35,7 @@ export function Explorer({ workspace, activeFileIds, onOpenFile, renderFileIcon 
 
     if (isFolder(node)) {
       const isRoot = node.parentId === null;
-      const isOpen = !!expanded[node.id];
+      const isOpen = isRoot ? true : !!expanded[node.id];
       const label = isRoot ? 'WORKSPACE' : node.name;
       const children = sortChildren(workspace, node.childrenIds);
 
