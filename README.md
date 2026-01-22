@@ -1,73 +1,104 @@
-# React + TypeScript + Vite
+# Coompiler
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+A modern, browser-based JavaScript compiler and playground powered by Monaco Editor.
 
-Currently, two official plugins are available:
+<img src="public/compiler.svg" alt="Coompiler Logo" width="64" height="64" />
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Features
 
-## React Compiler
+- **Monaco Editor** - The same powerful code editor that powers VS Code, with syntax highlighting, IntelliSense, and more
+- **Instant Execution** - Run JavaScript code directly in your browser with a sandboxed iframe runner
+- **Console Output** - View `console.log`, warnings, errors, and runtime exceptions with timestamps
+- **Dark/Light Theme** - Automatically follows your system preference, with manual toggle option
+- **Keyboard Shortcuts** - Optimized workflow with intuitive shortcuts
+- **Responsive Design** - Works seamlessly on desktop and mobile devices
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Keyboard Shortcuts
 
-## Expanding the ESLint configuration
+| Action | Mac | Windows/Linux |
+|--------|-----|---------------|
+| Run code | `⌘ + Enter` | `Ctrl + Enter` |
+| Clear output | `⌘ + L` | `Ctrl + L` |
+| Command palette | `F1` or `⇧⌘P` | `F1` or `Ctrl+Shift+P` |
+| Find | `⌘F` | `Ctrl+F` |
+| Replace | `⌥⌘F` | `Ctrl+H` |
+| Go to line | `Ctrl+G` | `Ctrl+G` |
+| Format document | `⇧⌥F` | `Alt+Shift+F` |
+| Toggle comment | `⌘/` | `Ctrl+/` |
+| Autocomplete | `Ctrl+Space` | `Ctrl+Space` |
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Tech Stack
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+- **React 19** - UI framework
+- **Vite 7** - Build tool and dev server
+- **Monaco Editor** - Code editing component
+- **Tailwind CSS 4** - Styling
+- **TypeScript** - Type safety
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+## Getting Started
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Prerequisites
+
+- Node.js 18+ 
+- npm or yarn
+
+### Installation
+
+```bash
+# Clone the repository
+git clone <repository-url>
+cd vscode_editor
+
+# Install dependencies
+npm install
+
+# Start the development server
+npm run dev
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+The app will be available at `http://localhost:5173`.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+### Build for Production
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```bash
+# Build the app
+npm run build
+
+# Preview the production build
+npm run preview
 ```
+
+## Project Structure
+
+```
+src/
+├── App.tsx                 # Root component
+├── main.tsx                # Entry point
+├── index.css               # Global styles
+├── jsCompiler/
+│   ├── JSCompilerPane.tsx  # Main compiler UI component
+│   └── runnerSrcDoc.ts     # Sandboxed iframe runner
+├── editor/
+│   ├── MonacoPane.tsx      # Monaco editor wrapper
+│   ├── Explorer.tsx        # File explorer component
+│   ├── useWorkspace.ts     # Workspace state management
+│   └── workspaceTypes.ts   # Type definitions
+└── components/
+    ├── ui/                 # UI components & icons
+    └── svg/                # SVG icon components
+```
+
+## How It Works
+
+1. **Code Editing** - Write JavaScript in the Monaco-powered editor with full syntax highlighting and IntelliSense
+2. **Execution** - When you run your code, it's executed in a sandboxed iframe for security
+3. **Output Capture** - Console methods (`log`, `warn`, `error`, etc.) are intercepted and displayed in the output panel
+4. **Error Handling** - Runtime errors and unhandled promise rejections are caught and displayed
+
+## License
+
+MIT
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
