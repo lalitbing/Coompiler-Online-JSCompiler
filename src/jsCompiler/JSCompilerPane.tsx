@@ -208,6 +208,7 @@ export function JSCompilerPane() {
   const [iframeReady, setIframeReady] = useState(false);
   const [activeRunId, setActiveRunId] = useState<string>(iframeKey);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [suggestionsEnabled, setSuggestionsEnabled] = useState(true);
   const pendingRunRef = useRef<{ code: string; runId: string } | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
@@ -462,6 +463,40 @@ export function JSCompilerPane() {
                   </button>
                 )}
                 <button
+                  type="button"
+                  role="switch"
+                  aria-checked={suggestionsEnabled}
+                  onClick={() => setSuggestionsEnabled((prev) => !prev)}
+                  className={[
+                    'h-7 px-1.5 rounded-md text-xs transition-all duration-150 ease-out inline-flex items-center gap-2',
+                    'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
+                    isLight
+                      ? 'text-[#0b1220]/80 hover:bg-black/5 focus:ring-black/15'
+                      : 'text-[#d7dce2]/90 hover:bg-white/10 focus:ring-white/15',
+                  ].join(' ')}
+                  title={`Suggestions ${suggestionsEnabled ? 'on' : 'off'}`}
+                >
+                  <span className="font-medium">Suggestions</span>
+                  <span
+                    className={[
+                      'inline-flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200',
+                      suggestionsEnabled
+                        ? 'bg-[#2563eb]'
+                        : isLight
+                          ? 'bg-black/20'
+                          : 'bg-white/25',
+                    ].join(' ')}
+                    aria-hidden
+                  >
+                    <span
+                      className={[
+                        'h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
+                        suggestionsEnabled ? 'translate-x-4' : 'translate-x-0',
+                      ].join(' ')}
+                    />
+                  </span>
+                </button>
+                <button
                   onClick={run}
                   className={[
                     'h-7 px-3 rounded-md text-xs font-semibold transition-all duration-150 ease-out',
@@ -484,7 +519,13 @@ export function JSCompilerPane() {
             </div>
 
             <div className="flex-1 min-h-0">
-              <MonacoPane path="/main.js" value={code} onChange={setCode} theme={theme} />
+              <MonacoPane
+                path="/main.js"
+                value={code}
+                onChange={setCode}
+                theme={theme}
+                suggestionsEnabled={suggestionsEnabled}
+              />
             </div>
           </div>
 
@@ -707,4 +748,3 @@ export function JSCompilerPane() {
     </div>
   );
 }
-

@@ -6,6 +6,7 @@ type MonacoPaneProps = {
   onChange: (nextValue: string) => void;
   readOnly?: boolean;
   theme?: 'dark' | 'light';
+  suggestionsEnabled?: boolean;
 };
 
 let didConfigureMonaco = false;
@@ -37,7 +38,14 @@ function languageFromPath(path: string): string {
   }
 }
 
-export function MonacoPane({ path, value, onChange, readOnly, theme = 'dark' }: MonacoPaneProps) {
+export function MonacoPane({
+  path,
+  value,
+  onChange,
+  readOnly,
+  theme = 'dark',
+  suggestionsEnabled = true,
+}: MonacoPaneProps) {
   const handleChange: OnChange = (next) => onChange(next ?? '');
 
   const beforeMount = (monaco: Monaco) => {
@@ -127,9 +135,16 @@ declare module 'vite/client' {}
           renderWhitespace: 'selection',
           renderLineHighlight: 'all',
           scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
+          quickSuggestions: suggestionsEnabled ? { other: true, comments: false, strings: false } : false,
+          suggestOnTriggerCharacters: suggestionsEnabled,
+          wordBasedSuggestions: suggestionsEnabled ? 'matchingDocuments' : 'off',
+          inlineSuggest: { enabled: suggestionsEnabled },
+          parameterHints: { enabled: suggestionsEnabled },
+          acceptSuggestionOnCommitCharacter: suggestionsEnabled,
+          snippetSuggestions: suggestionsEnabled ? 'inline' : 'none',
+          tabCompletion: suggestionsEnabled ? 'on' : 'off',
         }}
       />
     </div>
   );
 }
-
