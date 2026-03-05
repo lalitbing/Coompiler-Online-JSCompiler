@@ -19,6 +19,12 @@ type OutputLine =
   | { kind: 'console'; level: ConsoleLevel; text: string; ts: number; runId: string }
   | { kind: 'error'; text: string; ts: number; runId: string };
 
+type ComplexityEntry = {
+  name: string;
+  complexity: string;
+  reason: string;
+};
+
 type ResolvedTheme = 'dark' | 'light';
 
 const THEME_STORAGE_KEY = 'jscompiler_theme';
@@ -109,6 +115,351 @@ function parseRunnerMessage(v: unknown): RunnerToParentMessage | null {
   return null;
 }
 
+function sanitizeRuntimeErrorText(text: string): string {
+  return text
+    .replace(/\s*\(about:srcdoc:\d+:\d+\)/g, '')
+    .replace(/\s*at about:srcdoc:\d+:\d+/g, '')
+    .trim();
+}
+
+function findMatchingBrace(code: string, openBraceIndex: number): number {
+  if (openBraceIndex < 0 || code[openBraceIndex] !== '{') return -1;
+  let depth = 0;
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  for (let i = openBraceIndex; i < code.length; i += 1) {
+    const ch = code[i];
+    const next = code[i + 1];
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (inSingle) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '`') inTemplate = false;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      continue;
+    }
+
+    if (ch === '{') depth += 1;
+    if (ch === '}') {
+      depth -= 1;
+      if (depth === 0) return i;
+    }
+  }
+  return -1;
+}
+
+function estimateMaxImperativeLoopDepth(body: string): number {
+  let inSingle = false;
+  let inDouble = false;
+  let inTemplate = false;
+  let inLineComment = false;
+  let inBlockComment = false;
+  let escaped = false;
+
+  let loopDepth = 0;
+  let maxLoopDepth = 0;
+  let pendingLoopBlock = false;
+  let pendingLoopStatement = false;
+  let loopHeaderDepth = 0;
+  let waitingForLoopHeader = false;
+
+  const blockStack: number[] = [];
+
+  for (let i = 0; i < body.length; i += 1) {
+    const ch = body[i];
+    const next = body[i + 1];
+
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') {
+        inBlockComment = false;
+        i += 1;
+      }
+      continue;
+    }
+    if (inSingle) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === "'") inSingle = false;
+      continue;
+    }
+    if (inDouble) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '"') inDouble = false;
+      continue;
+    }
+    if (inTemplate) {
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (ch === '\\') {
+        escaped = true;
+        continue;
+      }
+      if (ch === '`') inTemplate = false;
+      continue;
+    }
+
+    if (ch === '/' && next === '/') {
+      inLineComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === '/' && next === '*') {
+      inBlockComment = true;
+      i += 1;
+      continue;
+    }
+    if (ch === "'") {
+      inSingle = true;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      continue;
+    }
+    if (ch === '`') {
+      inTemplate = true;
+      continue;
+    }
+
+    if (
+      (body.startsWith('for', i) || body.startsWith('while', i) || body.startsWith('do', i)) &&
+      (i === 0 || !/[A-Za-z0-9_$]/.test(body[i - 1] ?? '')) &&
+      !/[A-Za-z0-9_$]/.test(body[i + (body.startsWith('while', i) ? 5 : body.startsWith('for', i) ? 3 : 2)] ?? '')
+    ) {
+      loopDepth += 1;
+      maxLoopDepth = Math.max(maxLoopDepth, loopDepth);
+      pendingLoopBlock = true;
+      pendingLoopStatement = true;
+      waitingForLoopHeader = !body.startsWith('do', i);
+      i += body.startsWith('while', i) ? 4 : body.startsWith('for', i) ? 2 : 1;
+      continue;
+    }
+
+    if (waitingForLoopHeader && ch === '(') {
+      loopHeaderDepth = 1;
+      waitingForLoopHeader = false;
+      continue;
+    }
+    if (loopHeaderDepth > 0) {
+      if (ch === '(') loopHeaderDepth += 1;
+      if (ch === ')') loopHeaderDepth -= 1;
+      continue;
+    }
+
+    if (ch === '{') {
+      if (pendingLoopBlock) {
+        blockStack.push(1);
+        pendingLoopBlock = false;
+        pendingLoopStatement = false;
+      } else {
+        blockStack.push(0);
+      }
+      continue;
+    }
+
+    if (ch === '}') {
+      const delta = blockStack.pop() ?? 0;
+      if (delta > 0) {
+        loopDepth = Math.max(0, loopDepth - delta);
+      }
+      continue;
+    }
+
+    if (pendingLoopStatement && ch === ';') {
+      loopDepth = Math.max(0, loopDepth - 1);
+      pendingLoopStatement = false;
+      pendingLoopBlock = false;
+      continue;
+    }
+  }
+
+  return maxLoopDepth;
+}
+
+function estimateFunctionComplexity(name: string, body: string): ComplexityEntry {
+  const imperativeLoopDepth = estimateMaxImperativeLoopDepth(body);
+  const iteratorMatches = body.match(/\.(forEach|map|filter|reduce|some|every|find|flatMap)\s*\(/g) ?? [];
+  const iteratorDepth = iteratorMatches.length > 0 ? 1 : 0;
+  const maxLoopDepth = Math.max(imperativeLoopDepth, iteratorDepth);
+  const recursionMatches = body.match(new RegExp(`\\b${name}\\s*\\(`, 'g')) ?? [];
+  const recursionCalls = Math.max(0, recursionMatches.length - 1);
+
+  if (recursionCalls > 1) {
+    return {
+      name,
+      complexity: 'O(2^n)',
+      reason: 'Multiple self-calls suggest branching recursion.',
+    };
+  }
+
+  if (maxLoopDepth >= 3) {
+    return {
+      name,
+      complexity: 'O(n^3)',
+      reason: 'Three or more nested loop levels detected.',
+    };
+  }
+
+  if (recursionCalls === 1 && maxLoopDepth >= 1) {
+    return {
+      name,
+      complexity: 'O(n^2)',
+      reason: 'Single recursion combined with looping work detected.',
+    };
+  }
+
+  if (maxLoopDepth === 2) {
+    return {
+      name,
+      complexity: 'O(n^2)',
+      reason: 'Two nested loop levels detected.',
+    };
+  }
+
+  if (maxLoopDepth === 1 || recursionCalls === 1) {
+    return {
+      name,
+      complexity: 'O(n)',
+      reason: recursionCalls === 1 ? 'Single recursive self-call detected.' : 'Single loop-like operation detected.',
+    };
+  }
+
+  return {
+    name,
+    complexity: 'O(1)',
+    reason: 'No loops or recursion detected.',
+  };
+}
+
+function analyzeFunctionComplexity(code: string): ComplexityEntry[] {
+  const entries: ComplexityEntry[] = [];
+  const seen = new Set<string>();
+
+  const functionDeclarationRegex = /function\s+([A-Za-z_$][\w$]*)\s*\([^)]*\)\s*\{/g;
+  let match: RegExpExecArray | null;
+  while ((match = functionDeclarationRegex.exec(code)) !== null) {
+    const name = match[1];
+    const openBraceIndex = code.indexOf('{', match.index);
+    const closeBraceIndex = findMatchingBrace(code, openBraceIndex);
+    if (closeBraceIndex < 0 || seen.has(name)) continue;
+    const body = code.slice(openBraceIndex + 1, closeBraceIndex);
+    entries.push(estimateFunctionComplexity(name, body));
+    seen.add(name);
+  }
+
+  const variableArrowOrFunctionRegex =
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:function(?:\s+[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{|(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*\{)/g;
+  while ((match = variableArrowOrFunctionRegex.exec(code)) !== null) {
+    const name = match[1];
+    if (seen.has(name)) continue;
+    const openBraceIndex = code.indexOf('{', match.index);
+    const closeBraceIndex = findMatchingBrace(code, openBraceIndex);
+    if (closeBraceIndex < 0) continue;
+    const body = code.slice(openBraceIndex + 1, closeBraceIndex);
+    entries.push(estimateFunctionComplexity(name, body));
+    seen.add(name);
+  }
+
+  const variableArrowExpressionRegex =
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:\([^)]*\)|[A-Za-z_$][\w$]*)\s*=>\s*([^;\n]+)/g;
+  while ((match = variableArrowExpressionRegex.exec(code)) !== null) {
+    const name = match[1];
+    if (seen.has(name)) continue;
+    const body = match[2] ?? '';
+    entries.push(estimateFunctionComplexity(name, body));
+    seen.add(name);
+  }
+
+  return entries;
+}
+
 function EnterArrowIcon({ className }: { className?: string }) {
   // Down-then-right arrow (Enter-like).
   return (
@@ -156,6 +507,7 @@ function ShortcutPill({
 }
 
 export function JSCompilerPane() {
+  const isDev = import.meta.env.DEV;
   const [userTheme, setUserTheme] = useState<ResolvedTheme | null>(() => {
     // Follow system theme ONLY if user has never explicitly changed theme.
     try {
@@ -209,9 +561,13 @@ export function JSCompilerPane() {
   const [activeRunId, setActiveRunId] = useState<string>(iframeKey);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [suggestionsEnabled, setSuggestionsEnabled] = useState(true);
+  const [complexityEntries, setComplexityEntries] = useState<ComplexityEntry[]>([]);
+  const [outputSplitPercent, setOutputSplitPercent] = useState(50);
+  const [isDraggingSplit, setIsDraggingSplit] = useState(false);
   const pendingRunRef = useRef<{ code: string; runId: string } | null>(null);
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
 
   const srcDoc = useMemo(() => runnerSrcDoc(), []);
   const isMac = useMemo(() => {
@@ -260,12 +616,11 @@ export function JSCompilerPane() {
 
       if (msg.type === 'RUNTIME_ERROR' || msg.type === 'UNHANDLED_REJECTION') {
         const headline = msg.type === 'UNHANDLED_REJECTION' ? `Unhandled rejection: ${msg.message}` : msg.message;
-        const details = msg.stack ? `\n${msg.stack}` : '';
         setOutput((prev) => [
           ...prev,
           {
             kind: 'error',
-            text: `${headline}${details}`,
+            text: sanitizeRuntimeErrorText(headline),
             ts: Date.now(),
             runId: msg.runId,
           },
@@ -276,6 +631,31 @@ export function JSCompilerPane() {
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
   }, [activeRunId]);
+
+  useEffect(() => {
+    if (!isDraggingSplit) return;
+
+    function onPointerMove(e: PointerEvent) {
+      const container = splitContainerRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.height <= 0) return;
+      const rawPercent = ((e.clientY - rect.top) / rect.height) * 100;
+      const nextPercent = Math.max(20, Math.min(80, rawPercent));
+      setOutputSplitPercent(nextPercent);
+    }
+
+    function onPointerUp() {
+      setIsDraggingSplit(false);
+    }
+
+    window.addEventListener('pointermove', onPointerMove);
+    window.addEventListener('pointerup', onPointerUp, { once: true });
+    return () => {
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+    };
+  }, [isDraggingSplit]);
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -314,15 +694,22 @@ export function JSCompilerPane() {
 
   const run = () => {
     const runId = makeRunId();
-    const ts = Date.now();
-    setOutput([{ kind: 'console', level: 'info', text: `=== Run ${runId} ===`, ts, runId }]);
+    setOutput([]);
+    if (isDev) {
+      setComplexityEntries(analyzeFunctionComplexity(code));
+    } else {
+      setComplexityEntries([]);
+    }
     setIframeReady(false);
     setActiveRunId(runId);
     pendingRunRef.current = { code, runId };
     setIframeKey(runId); // remount iframe to reset state per run
   };
 
-  const clear = () => setOutput([]);
+  const clear = () => {
+    setOutput([]);
+    setComplexityEntries([]);
+  };
 
 
   useEffect(() => {
@@ -529,94 +916,200 @@ export function JSCompilerPane() {
             </div>
           </div>
 
-          <div
-            className={[
-              'min-w-0 rounded-xl border overflow-hidden flex flex-col',
-              isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#171c28]',
-              'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
-            ].join(' ')}
-          >
+          <div ref={splitContainerRef} className="min-w-0 min-h-0 flex flex-col">
             <div
+              style={isDev ? { flexBasis: `${outputSplitPercent}%` } : undefined}
               className={[
-                'min-h-10 p-3 sm:py-0 flex flex-wrap items-center justify-between gap-2 border-b',
-                isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
+                'min-h-0 rounded-xl border overflow-hidden flex flex-col',
+                isDev ? '' : 'flex-1',
+                isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#171c28]',
+                'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
               ].join(' ')}
             >
-              <div className="min-w-0 flex items-center gap-2">
-                <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
-                  Output
+              <div
+                className={[
+                  'min-h-10 p-3 sm:py-0 flex flex-wrap items-center justify-between gap-2 border-b',
+                  isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
+                ].join(' ')}
+              >
+                <div className="min-w-0 flex items-center gap-2">
+                  <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
+                    Output
+                  </div>
+                  <div className={['text-[12px]', isLight ? 'text-black/45' : 'text-[#8695b7]'].join(' ')}>
+                    <span className={iframeReady ? 'text-[#16a34a]' : isLight ? 'text-[#b45309]' : 'text-[#ffcc66]'}>
+                      {iframeReady ? 'ready' : 'loading'}
+                    </span>
+                  </div>
                 </div>
-                <div className={['text-[12px]', isLight ? 'text-black/45' : 'text-[#8695b7]'].join(' ')}>
-                  <span className={iframeReady ? 'text-[#16a34a]' : isLight ? 'text-[#b45309]' : 'text-[#ffcc66]'}>
-                    {iframeReady ? 'ready' : 'loading'}
-                  </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    onClick={clear}
+                    className={[
+                      'h-7 px-3 rounded-md text-xs border transition-all duration-150 ease-out',
+                      'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
+                      isLight
+                        ? 'border-black/15 text-[#0b1220]/75 hover:bg-black/5 focus:ring-black/15'
+                        : 'border-white/15 text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
+                    ].join(' ')}
+                    title={isMac ? 'Clear output (⌘+L)' : 'Clear output (Ctrl+L)'}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span>Clear</span>
+                      <ShortcutPill variant={isLight ? 'light' : 'dark'}>
+                        {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
+                        <span>L</span>
+                      </ShortcutPill>
+                    </span>
+                  </button>
                 </div>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={clear}
-                  className={[
-                    'h-7 px-3 rounded-md text-xs border transition-all duration-150 ease-out',
-                    'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                    isLight
-                      ? 'border-black/15 text-[#0b1220]/75 hover:bg-black/5 focus:ring-black/15'
-                      : 'border-white/15 text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
-                  ].join(' ')}
-                  title={isMac ? 'Clear output (⌘+L)' : 'Clear output (Ctrl+L)'}
-                >
-                  <span className="flex items-center gap-2">
-                    <span>Clear</span>
-                    <ShortcutPill variant={isLight ? 'light' : 'dark'}>
-                      {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
-                      <span>L</span>
-                    </ShortcutPill>
-                  </span>
-                </button>
+
+              <div
+                className={[
+                  'flex-1 min-h-0 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 select-text',
+                  isLight ? 'text-[#0b1220]' : '',
+                ].join(' ')}
+              >
+                {output.length === 0 ? (
+                  <div className={isLight ? 'text-black/50' : 'text-[#8695b7]'}>No output</div>
+                ) : (
+                  <ul className="space-y-1">
+                    {output.map((line, idx) => {
+                      const color = isLight
+                        ? line.kind === 'error'
+                          ? 'text-[#b91c1c]'
+                          : line.level === 'error'
+                            ? 'text-[#b91c1c]'
+                            : line.level === 'warn'
+                              ? 'text-[#b45309]'
+                              : line.level === 'info'
+                                ? 'text-black/55'
+                                : 'text-[#0b1220]'
+                        : line.kind === 'error'
+                          ? 'text-[#ff7b72]'
+                          : line.level === 'error'
+                            ? 'text-[#ff7b72]'
+                            : line.level === 'warn'
+                              ? 'text-[#ffcc66]'
+                              : line.level === 'info'
+                                ? 'text-[#a2aabc]'
+                                : 'text-[#d7dce2]';
+                      return (
+                        <li key={idx} className={`whitespace-pre-wrap wrap-break-word ${color}`}>
+                          <span className={['mr-2 select-none', isLight ? 'text-black/40' : 'text-[#6679a4]'].join(' ')}>
+                            [{formatTime(line.ts)}]
+                          </span>
+                          {line.text}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
               </div>
             </div>
 
-            <div
-              className={[
-                'flex-1 min-h-0 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 select-text',
-                isLight ? 'text-[#0b1220]' : '',
-              ].join(' ')}
-            >
-              {output.length === 0 ? (
-                <div className={isLight ? 'text-black/50' : 'text-[#8695b7]'}>No output yet.</div>
-              ) : (
-                <ul className="space-y-1">
-                  {output.map((line, idx) => {
-                    const color = isLight
-                      ? line.kind === 'error'
-                        ? 'text-[#b91c1c]'
-                        : line.level === 'error'
-                          ? 'text-[#b91c1c]'
-                          : line.level === 'warn'
-                            ? 'text-[#b45309]'
-                            : line.level === 'info'
-                              ? 'text-black/55'
-                              : 'text-[#0b1220]'
-                      : line.kind === 'error'
-                        ? 'text-[#ff7b72]'
-                        : line.level === 'error'
-                          ? 'text-[#ff7b72]'
-                          : line.level === 'warn'
-                            ? 'text-[#ffcc66]'
-                            : line.level === 'info'
-                              ? 'text-[#a2aabc]'
-                              : 'text-[#d7dce2]';
-                    return (
-                      <li key={idx} className={`whitespace-pre-wrap wrap-break-word ${color}`}>
-                        <span className={['mr-2 select-none', isLight ? 'text-black/40' : 'text-[#6679a4]'].join(' ')}>
-                          [{formatTime(line.ts)}]
-                        </span>
-                        {line.text}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </div>
+            {isDev && (
+              <div
+                className={[
+                  'h-4 shrink-0 flex items-center justify-center',
+                ].join(' ')}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  setIsDraggingSplit(true);
+                }}
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize output and complexity panels"
+              >
+                <div
+                  className={[
+                    'h-1.5 w-20 rounded-full border cursor-row-resize transition-colors',
+                    isLight
+                      ? 'border-black/10 bg-black/[0.08] hover:bg-black/[0.14]'
+                      : 'border-white/15 bg-white/[0.15] hover:bg-white/[0.24]',
+                  ].join(' ')}
+                />
+              </div>
+            )}
+
+            {isDev && (
+              <div
+                style={{ flexBasis: `${100 - outputSplitPercent}%` }}
+                className={[
+                  'min-h-0 rounded-xl border overflow-hidden flex flex-col',
+                  isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#171c28]',
+                  'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
+                ].join(' ')}
+              >
+                <div
+                  className={[
+                    'min-h-10 p-3 sm:py-0 flex items-center justify-between gap-2 border-b',
+                    isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
+                  ].join(' ')}
+                >
+                  <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
+                    Time Complexity Indicator
+                  </div>
+                  <span
+                    className={[
+                      'shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+                      isLight ? 'bg-[#fef3c7] text-[#92400e] border border-[#f59e0b]/30' : 'bg-[#78350f] text-[#fde68a] border border-[#f59e0b]/30',
+                    ].join(' ')}
+                  >
+                    Beta
+                  </span>
+                </div>
+
+                <div className="flex-1 min-h-0 overflow-auto px-3 py-2 text-[12px] leading-5">
+                  {complexityEntries.length === 0 ? (
+                    <div className={isLight ? 'text-black/50' : 'text-[#8695b7]'}>
+                      No function complexity data yet. Run code to analyze.
+                    </div>
+                  ) : (
+                    <ul className="space-y-2">
+                      {complexityEntries.map((entry) => {
+                        const bandClass = isLight
+                          ? entry.complexity === 'O(1)'
+                            ? 'bg-[#dcfce7] text-[#166534]'
+                            : entry.complexity === 'O(n)'
+                              ? 'bg-[#dbeafe] text-[#1d4ed8]'
+                              : entry.complexity === 'O(n^2)'
+                                ? 'bg-[#fef3c7] text-[#92400e]'
+                                : 'bg-[#fee2e2] text-[#991b1b]'
+                          : entry.complexity === 'O(1)'
+                            ? 'bg-[#14532d] text-[#bbf7d0]'
+                            : entry.complexity === 'O(n)'
+                              ? 'bg-[#1e3a8a] text-[#bfdbfe]'
+                              : entry.complexity === 'O(n^2)'
+                                ? 'bg-[#78350f] text-[#fde68a]'
+                                : 'bg-[#7f1d1d] text-[#fecaca]';
+
+                        return (
+                          <li
+                            key={entry.name}
+                            className={[
+                              'rounded-md border p-2',
+                              isLight ? 'border-black/10 bg-black/[0.015]' : 'border-white/10 bg-black/10',
+                            ].join(' ')}
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={['font-mono font-semibold', isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'].join(' ')}>
+                                {entry.name}
+                              </span>
+                              <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${bandClass}`}>{entry.complexity}</span>
+                            </div>
+                            <div className={['mt-1', isLight ? 'text-black/65' : 'text-[#a2aabc]'].join(' ')}>
+                              {entry.reason}
+                            </div>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
 
             {/* Hidden-ish runner: sandboxed iframe */}
             <iframe
