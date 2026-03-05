@@ -161,6 +161,16 @@ export function runnerSrcDoc(): string {
           return safeInspect(arg);
         }
 
+        function formatErrorMessage(errorLike, fallback) {
+          if (errorLike instanceof Error) {
+            const name = typeof errorLike.name === 'string' && errorLike.name.trim() ? errorLike.name.trim() : 'Error';
+            const message = typeof errorLike.message === 'string' && errorLike.message.trim() ? errorLike.message.trim() : fallback;
+            return message.startsWith(name + ':') ? message : name + ': ' + message;
+          }
+          const text = typeof fallback === 'string' && fallback.trim() ? fallback.trim() : 'Runtime error';
+          return text;
+        }
+
         function post(msg) {
           try {
             window.parent.postMessage(msg, '*');
@@ -181,9 +191,10 @@ export function runnerSrcDoc(): string {
 
         window.addEventListener('error', function (event) {
           const err = event && event.error;
+          const message = formatErrorMessage(err, String((event && event.message) || 'Uncaught error'));
           post({
             type: 'RUNTIME_ERROR',
-            message: String((event && event.message) || (err && err.message) || 'Uncaught error'),
+            message: message,
             stack: (err && err.stack) ? String(err.stack) : undefined,
             runId: window.__RUN_ID__ || ''
           });
@@ -192,7 +203,7 @@ export function runnerSrcDoc(): string {
         window.addEventListener('unhandledrejection', function (event) {
           const reason = event && event.reason;
           const message =
-            reason instanceof Error ? (reason.message || 'Unhandled promise rejection')
+            reason instanceof Error ? formatErrorMessage(reason, 'Unhandled promise rejection')
             : typeof reason === 'string' ? reason
             : safeInspect(reason);
           const stack = reason instanceof Error && reason.stack ? String(reason.stack) : undefined;
@@ -213,7 +224,12 @@ export function runnerSrcDoc(): string {
             (new Function(String(data.code || '')))();
           } catch (e) {
             const err = e instanceof Error ? e : new Error(String(e));
-            post({ type: 'RUNTIME_ERROR', message: err.message || 'Runtime error', stack: err.stack, runId: window.__RUN_ID__ || '' });
+            post({
+              type: 'RUNTIME_ERROR',
+              message: formatErrorMessage(err, 'Runtime error'),
+              stack: err.stack,
+              runId: window.__RUN_ID__ || ''
+            });
           }
         });
 
