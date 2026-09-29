@@ -1,11 +1,91 @@
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 @import "tailwindcss";
+
+/*
+  Theme tokens. The active theme is set on <html data-theme="..."> by JSCompilerPane.
+  Keep in sync with the Monaco themes in src/editor/MonacoPane.tsx.
+*/
+:root,
+:root[data-theme="light"] {
+  --bg: #f4f4f5;
+  --surface: #fcfcfc;
+  --surface-2: #f4f4f5;
+  --border: #e4e4e7;
+  --border-strong: #d4d4d8;
+  --text: #18181b;
+  --text-2: #52525b;
+  --text-3: #71717a;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(37 99 235 / 0.1);
+  --warn: #a16207;
+  --warn-soft: rgb(234 179 8 / 0.1);
+  --error: #b91c1c;
+  --error-soft: rgb(239 68 68 / 0.08);
+  --ok: #15803d;
+  --hover: rgb(24 24 27 / 0.05);
+  --shadow: 0 1px 2px rgb(24 24 27 / 0.04), 0 8px 24px -12px rgb(24 24 27 / 0.12);
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0c0c0e;
+  --surface: #131316;
+  --surface-2: #1a1a1e;
+  --border: #232327;
+  --border-strong: #303036;
+  --text: #ececef;
+  --text-2: #a1a1aa;
+  --text-3: #8b8b94;
+  --accent: #3b82f6;
+  --accent-hover: #2f74e6;
+  --accent-fg: #ffffff;
+  --accent-soft: rgb(59 130 246 / 0.14);
+  --warn: #facc15;
+  --warn-soft: rgb(250 204 21 / 0.07);
+  --error: #f87171;
+  --error-soft: rgb(248 113 113 / 0.08);
+  --ok: #4ade80;
+  --hover: rgb(255 255 255 / 0.06);
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-2: var(--text-2);
+  --color-fg-3: var(--text-3);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-fg: var(--accent-fg);
+  --color-accent-soft: var(--accent-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-error: var(--error);
+  --color-error-soft: var(--error-soft);
+  --color-ok: var(--ok);
+  --color-hover: var(--hover);
+  --shadow-pane: var(--shadow);
+}
 
 html, body, #root {
   height: 100%;
 }
 body {
   margin: 0;
-  background-color: black;
+  background-color: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
   user-select: none;
 }
 
@@ -17,5 +97,17 @@ body {
   button:disabled,
   button[aria-disabled="true"] {
     cursor: not-allowed;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
   }
 }

@@ -3,6 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/compiler.svg" />
+    <meta name="theme-color" content="#0c0c0e" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f4f4f5" media="(prefers-color-scheme: light)" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="google-site-verification" content="nTdtEoenKjuk0NiW8QbYw065LyKyt-GY1IoSq2mjCX4" />
     <meta name="description" content="Coompiler is a fast and interactive online JavaScript compiler built by Lalit Sharma. Write, run and test JavaScript code instantly in your browser." />
@@ -37,6 +39,17 @@
       }
       </script>
     <title>Coompiler - Online JS Compiler</title>
+    <script>
+      // Apply the saved or system theme before first paint (see JSCompilerPane).
+      (function () {
+        var t = null;
+        try { t = localStorage.getItem('jscompiler_theme') || localStorage.getItem('jscompiler_theme_mode'); } catch (e) {}
+        if (t !== 'light' && t !== 'dark') {
+          t = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        document.documentElement.dataset.theme = t;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

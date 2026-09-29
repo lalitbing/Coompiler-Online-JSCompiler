@@ -3,7 +3,17 @@ import { MonacoPane } from '../editor/MonacoPane';
 import { runnerSrcDoc } from './runnerSrcDoc';
 import MoonIcon from '@/components/ui/moon-icon';
 import BrightnessDownIcon from '@/components/ui/brightness-down-icon';
-import CommandIcon from '@/components/svg/command-icon';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import {
+  ArrowElbowDownLeft,
+  Command,
+  FileJs,
+  Gauge,
+  Keyboard,
+  Play,
+  Terminal,
+  X,
+} from '@phosphor-icons/react';
 
 type ConsoleLevel = 'log' | 'info' | 'warn' | 'error' | 'debug';
 
@@ -460,54 +470,39 @@ function analyzeFunctionComplexity(code: string): ComplexityEntry[] {
   return entries;
 }
 
-function EnterArrowIcon({ className }: { className?: string }) {
-  // Down-then-right arrow (Enter-like).
+function Kbd({ children, onAccent = false }: { children: React.ReactNode; onAccent?: boolean }) {
   return (
-    <svg
-      width="14"
-      height="14"
-      viewBox="0 0 24 24"
-      fill="none"
-      aria-hidden
-      className={className}
+    <kbd
+      className={[
+        'inline-flex h-[18px] min-w-[18px] items-center justify-center gap-0.5 rounded px-1 font-mono text-[10.5px] leading-none',
+        onAccent ? 'bg-white/20 text-accent-fg' : 'border border-line bg-surface-2 text-fg-2',
+      ].join(' ')}
     >
-      <path
-        d="M7 4v9a2 2 0 0 0 2 2h11"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path
-        d="M17 11l4 4-4 4"
-        stroke="currentColor"
-        strokeWidth="2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
+      {children}
+    </kbd>
   );
 }
 
-function ShortcutPill({
-  children,
-  variant = 'dark',
-}: {
-  children: React.ReactNode;
-  variant?: 'dark' | 'light';
-}) {
-  const base = 'inline-flex items-center gap-1 px-1.5 h-5 rounded-md border text-[11px] font-mono';
-  const theme =
-    variant === 'light'
-      ? 'border-black/20 bg-black/10 text-[#0b1220]/90'
-      : 'border-white/20 bg-white/10 text-white/90';
-  return (
-    <span className={`${base} ${theme}`}>{children}</span>
-  );
+function ModKey({ isMac, size = 11 }: { isMac: boolean; size?: number }) {
+  return isMac ? <Command size={size} weight="bold" aria-label="Command" /> : <span>Ctrl</span>;
 }
+
+const COMPLEXITY_BADGE: Record<string, string> = {
+  'O(1)': 'bg-[color-mix(in_srgb,var(--ok)_14%,transparent)] text-ok',
+  'O(n)': 'bg-accent-soft text-accent',
+  'O(n^2)': 'bg-warn-soft text-warn',
+};
+
+const ICON_BUTTON =
+  'h-8 inline-flex items-center justify-center gap-2 rounded-lg text-fg-2 transition-[background-color,color,transform] duration-150 ease-out hover:bg-hover hover:text-fg active:scale-[0.97]';
+
+const PANE = 'min-h-0 min-w-0 flex flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-pane';
+
+const PANE_HEADER = 'h-11 shrink-0 px-2 flex items-center justify-between gap-2 border-b border-line';
 
 export function JSCompilerPane() {
   const isDev = import.meta.env.DEV;
+  const reduceMotion = useReducedMotion();
   const [userTheme, setUserTheme] = useState<ResolvedTheme | null>(() => {
     // Follow system theme ONLY if user has never explicitly changed theme.
     try {
@@ -730,104 +725,61 @@ export function JSCompilerPane() {
 
   const isLight = theme === 'light';
   const share = false;
-  const themeButtonTitle = `Theme: ${theme}. Click to switch to ${theme === 'dark' ? 'light' : 'dark'}.`;
+  const themeButtonTitle = `Switch to ${isLight ? 'dark' : 'light'} theme`;
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = theme;
+  }, [theme]);
 
   return (
-    <div
-      className={[
-        'h-full font-[system-ui] flex flex-col',
-        isLight ? 'bg-[#f6f7fb] text-[#0b1220]' : 'bg-[#0f1420] text-[#d7dce2]',
-      ].join(' ')}
-    >
-      {/* Floating app header */}
-      <div
-        className={[
-          'sticky top-0 z-40 h-12 px-5',
-          'border-b backdrop-blur',
-          isLight ? 'bg-white/80 border-black/10' : 'bg-[#171c28]/85 border-white/10',
-          'shadow-[0_10px_30px_-20px_rgba(0,0,0,0.8)]',
-        ].join(' ')}
-      >
-        <div className="h-full flex items-center justify-between gap-3">
-          <div className="min-w-0 flex items-center gap-2">
-            <img
-              src="/compiler.svg"
-              alt="Coompiler logo"
-              className="h-6 w-6 shrink-0"
-              draggable={false}
-            />
-            <div className={['text-sm font-semibold tracking-wide', isLight ? 'text-[#0b1220]/90' : 'text-[#d7dce2]'].join(' ')}>
-              Coompiler
-            </div>
-            <div className={['hidden sm:block text-[12px] truncate', isLight ? 'text-black/50' : 'text-[#8695b7]'].join(' ')}>
-              Monaco based JavaScript Compiler
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 justify-end">
-            {/*
-              Theme follows system only until the user toggles.
-              After first toggle, we persist the user's choice (dark/light).
-            */}
-            <button
-              onClick={() => {
-                setUserTheme((prev) => {
-                  const current = prev ?? systemTheme;
-                  return current === 'dark' ? 'light' : 'dark';
-                });
-              }}
-              className={[
-                'h-8 w-8 rounded-md grid place-items-center transition-all duration-150 ease-out',
-                'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                isLight
-                  ? 'text-[#0b1220]/70 hover:bg-black/5 focus:ring-black/15'
-                  : 'text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
-              ].join(' ')}
-              title={themeButtonTitle}
-              aria-label={`Theme: ${theme}. Click to toggle theme.`}
-            >
-              {isLight ? <MoonIcon size={16} /> : <BrightnessDownIcon size={16} />}
-            </button>
-
-            <button
-              onClick={() => setShortcutsOpen(true)}
-              className={[
-                'hidden sm:inline-flex items-center gap-2',
-                'h-8 px-2.5 rounded-md text-xs transition-all duration-150 ease-out',
-                'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                isLight
-                  ? 'text-[#0b1220]/70 hover:bg-black/5 focus:ring-black/15'
-                  : 'text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
-              ].join(' ')}
-              title="Keyboard shortcuts"
-            >
-              <span>Shortcuts</span>
-            </button>
-          </div>
+    <div className="h-full flex flex-col bg-bg text-fg font-sans">
+      <header className="h-12 shrink-0 px-4 flex items-center justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-2.5">
+          <img src="/compiler.svg" alt="Coompiler logo" className="h-5 w-5 shrink-0" draggable={false} />
+          <span className="text-[14px] font-semibold tracking-tight">Coompiler</span>
+          <span className="hidden sm:block h-4 w-px bg-line-strong" aria-hidden />
+          <span className="hidden sm:block text-[13px] text-fg-3 truncate">JavaScript playground, powered by Monaco</span>
         </div>
-      </div>
 
-      <div className="flex-1 overflow-hidden p-2 sm:p-3">
-        <div className="h-full grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4 overflow-hidden">
-          <div
-            className={[
-              'min-w-0 rounded-xl border overflow-hidden flex flex-col',
-              isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#1d2433]',
-              'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
-            ].join(' ')}
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setShortcutsOpen(true)}
+            className={`${ICON_BUTTON} max-sm:hidden px-2.5 text-[13px]`}
+            title="Keyboard shortcuts"
           >
-            <div
-              className={[
-                'min-h-10 p-3 sm:py-0 flex flex-wrap items-center justify-between gap-2 border-b',
-                isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
-              ].join(' ')}
-            >
-              <div className="min-w-0 flex items-center gap-2">
-                <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
-                  main.js
-                </div>
+            <Keyboard size={16} />
+            <span>Shortcuts</span>
+          </button>
+          {/*
+            Theme follows system only until the user toggles.
+            After first toggle, we persist the user's choice (dark/light).
+          */}
+          <button
+            onClick={() => {
+              setUserTheme((prev) => {
+                const current = prev ?? systemTheme;
+                return current === 'dark' ? 'light' : 'dark';
+              });
+            }}
+            className={`${ICON_BUTTON} w-8`}
+            title={themeButtonTitle}
+            aria-label={themeButtonTitle}
+          >
+            {isLight ? <MoonIcon size={16} strokeWidth={1.75} /> : <BrightnessDownIcon size={17} strokeWidth={1.75} />}
+          </button>
+        </div>
+      </header>
+
+      <main className="flex-1 min-h-0 px-3 pb-3">
+        <div className="h-full grid grid-cols-1 grid-rows-[minmax(0,3fr)_minmax(0,2fr)] lg:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] lg:grid-rows-1 gap-3">
+          {/* Editor */}
+          <section className={PANE} aria-label="Editor">
+            <div className={PANE_HEADER}>
+              <div className="min-w-0 h-8 px-2 flex items-center gap-2 text-[13px] font-medium">
+                <FileJs size={16} weight="duotone" className="shrink-0 text-accent" />
+                <span className="truncate">main.js</span>
               </div>
-              <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1">
                 {share && (
                   <button
                     onClick={() => {
@@ -837,13 +789,7 @@ export function JSCompilerPane() {
                         // ignore
                       }
                     }}
-                    className={[
-                      'h-7 px-2.5 rounded-md text-xs transition-all duration-150 ease-out',
-                      'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                      isLight
-                        ? 'text-[#0b1220]/70 hover:bg-black/5 focus:ring-black/15'
-                        : 'text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
-                    ].join(' ')}
+                    className={`${ICON_BUTTON} px-2.5 text-[13px]`}
                     title="Copy code to clipboard"
                   >
                     Share
@@ -854,31 +800,21 @@ export function JSCompilerPane() {
                   role="switch"
                   aria-checked={suggestionsEnabled}
                   onClick={() => setSuggestionsEnabled((prev) => !prev)}
-                  className={[
-                    'h-7 px-1.5 rounded-md text-xs transition-all duration-150 ease-out inline-flex items-center gap-2',
-                    'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                    isLight
-                      ? 'text-[#0b1220]/80 hover:bg-black/5 focus:ring-black/15'
-                      : 'text-[#d7dce2]/90 hover:bg-white/10 focus:ring-white/15',
-                  ].join(' ')}
+                  className={`${ICON_BUTTON} px-2.5 text-[13px]`}
                   title={`Suggestions ${suggestionsEnabled ? 'on' : 'off'}`}
                 >
-                  <span className="font-medium">Suggestions</span>
+                  <span>Suggestions</span>
                   <span
                     className={[
-                      'inline-flex h-5 w-9 items-center rounded-full p-0.5 transition-colors duration-200',
-                      suggestionsEnabled
-                        ? 'bg-[#2563eb]'
-                        : isLight
-                          ? 'bg-black/20'
-                          : 'bg-white/25',
+                      'inline-flex h-[18px] w-8 items-center rounded-full p-0.5 transition-colors duration-200',
+                      suggestionsEnabled ? 'bg-accent' : 'bg-line-strong',
                     ].join(' ')}
                     aria-hidden
                   >
                     <span
                       className={[
-                        'h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200',
-                        suggestionsEnabled ? 'translate-x-4' : 'translate-x-0',
+                        'h-3.5 w-3.5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-out',
+                        suggestionsEnabled ? 'translate-x-3.5' : 'translate-x-0',
                       ].join(' ')}
                     />
                   </span>
@@ -886,20 +822,21 @@ export function JSCompilerPane() {
                 <button
                   onClick={run}
                   className={[
-                    'h-7 px-3 rounded-md text-xs font-semibold transition-all duration-150 ease-out',
-                    'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                    'bg-[#2563eb] text-white hover:brightness-95 focus:ring-[#2563eb]/35',
+                    'ml-1 h-8 pl-2.5 pr-1.5 rounded-lg inline-flex items-center gap-2 text-[13px] font-medium',
+                    'bg-accent text-accent-fg hover:bg-accent-hover',
+                    'shadow-[inset_0_1px_0_rgb(255_255_255/0.15)] transition-[background-color,transform] duration-150 ease-out active:scale-[0.97]',
                   ].join(' ')}
-                  title={isMac ? 'Run (⌘+Enter)' : 'Run (Ctrl+Enter)'}
+                  title={isMac ? 'Run (⌘ Enter)' : 'Run (Ctrl Enter)'}
                 >
-                  <span className="flex items-center gap-2">
-                    <span>Run</span>
-                    <span className="hidden sm:inline-flex">
-                      <ShortcutPill variant="dark">
-                        {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
-                        <EnterArrowIcon className="opacity-90" />
-                      </ShortcutPill>
-                    </span>
+                  <Play size={13} weight="fill" />
+                  <span>Run</span>
+                  <span className="hidden sm:inline-flex gap-0.5">
+                    <Kbd onAccent>
+                      <ModKey isMac={isMac} />
+                    </Kbd>
+                    <Kbd onAccent>
+                      <ArrowElbowDownLeft size={11} weight="bold" aria-label="Enter" />
+                    </Kbd>
                   </span>
                 </button>
               </div>
@@ -914,106 +851,94 @@ export function JSCompilerPane() {
                 suggestionsEnabled={suggestionsEnabled}
               />
             </div>
-          </div>
+          </section>
 
           <div ref={splitContainerRef} className="min-w-0 min-h-0 flex flex-col">
-            <div
+            {/* Output */}
+            <section
               style={isDev ? { flexBasis: `${outputSplitPercent}%` } : undefined}
-              className={[
-                'min-h-0 rounded-xl border overflow-hidden flex flex-col',
-                isDev ? '' : 'flex-1',
-                isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#171c28]',
-                'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
-              ].join(' ')}
+              className={`${PANE} ${isDev ? '' : 'flex-1'}`}
+              aria-label="Output"
             >
-              <div
-                className={[
-                  'min-h-10 p-3 sm:py-0 flex flex-wrap items-center justify-between gap-2 border-b',
-                  isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
-                ].join(' ')}
-              >
-                <div className="min-w-0 flex items-center gap-2">
-                  <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
-                    Output
-                  </div>
-                  <div className={['text-[12px]', isLight ? 'text-black/45' : 'text-[#8695b7]'].join(' ')}>
-                    <span className={iframeReady ? 'text-[#16a34a]' : isLight ? 'text-[#b45309]' : 'text-[#ffcc66]'}>
-                      {iframeReady ? 'ready' : 'loading'}
-                    </span>
-                  </div>
+              <div className={PANE_HEADER}>
+                <div className="min-w-0 h-8 px-2 flex items-center gap-2 text-[13px]">
+                  <Terminal size={16} className="shrink-0 text-fg-3" />
+                  <span className="font-medium">Output</span>
+                  {output.length > 0 && (
+                    <span className="font-mono text-[11px] text-fg-3 tabular-nums">{output.length}</span>
+                  )}
+                  {!iframeReady && <span className="text-[12px] text-fg-3">Running…</span>}
                 </div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    onClick={clear}
-                    className={[
-                      'h-7 px-3 rounded-md text-xs border transition-all duration-150 ease-out',
-                      'hover:-translate-y-px active:translate-y-0 active:scale-[0.99] focus:outline-none focus:ring-2',
-                      isLight
-                        ? 'border-black/15 text-[#0b1220]/75 hover:bg-black/5 focus:ring-black/15'
-                        : 'border-white/15 text-[#a2aabc] hover:bg-white/10 focus:ring-white/15',
-                    ].join(' ')}
-                    title={isMac ? 'Clear output (⌘+L)' : 'Clear output (Ctrl+L)'}
-                  >
-                    <span className="flex items-center gap-2">
-                      <span>Clear</span>
-                      <ShortcutPill variant={isLight ? 'light' : 'dark'}>
-                        {isMac ? <CommandIcon size={12} className="opacity-90" /> : <span>Ctrl</span>}
-                        <span>L</span>
-                      </ShortcutPill>
-                    </span>
-                  </button>
-                </div>
+                <button
+                  onClick={clear}
+                  disabled={output.length === 0 && complexityEntries.length === 0}
+                  className={`${ICON_BUTTON} px-2.5 text-[13px] disabled:opacity-40 disabled:hover:bg-transparent disabled:hover:text-fg-2 disabled:active:scale-100`}
+                  title={isMac ? 'Clear output (⌘ L)' : 'Clear output (Ctrl L)'}
+                >
+                  <span>Clear</span>
+                  <span className="inline-flex gap-0.5">
+                    <Kbd>
+                      <ModKey isMac={isMac} />
+                    </Kbd>
+                    <Kbd>L</Kbd>
+                  </span>
+                </button>
               </div>
 
-              <div
-                className={[
-                  'flex-1 min-h-0 overflow-auto px-3 py-2 font-mono text-[12px] leading-5 select-text',
-                  isLight ? 'text-[#0b1220]' : '',
-                ].join(' ')}
-              >
+              <div className="flex-1 min-h-0 overflow-auto py-2 font-mono text-[12.5px] leading-[20px] select-text">
                 {output.length === 0 ? (
-                  <div className={isLight ? 'text-black/50' : 'text-[#8695b7]'}>No output</div>
+                  <div className="h-full min-h-24 grid place-items-center px-6 text-center font-sans">
+                    <div className="space-y-2">
+                      <p className="text-[13px] text-fg-2">Console output will show up here.</p>
+                      <p className="text-[12px] text-fg-3 inline-flex items-center gap-1.5">
+                        Press
+                        <Kbd>
+                          <ModKey isMac={isMac} />
+                        </Kbd>
+                        <Kbd>
+                          <ArrowElbowDownLeft size={11} weight="bold" aria-label="Enter" />
+                        </Kbd>
+                        to run
+                      </p>
+                    </div>
+                  </div>
                 ) : (
-                  <ul className="space-y-1">
+                  <ul>
                     {output.map((line, idx) => {
-                      const color = isLight
-                        ? line.kind === 'error'
-                          ? 'text-[#b91c1c]'
-                          : line.level === 'error'
-                            ? 'text-[#b91c1c]'
-                            : line.level === 'warn'
-                              ? 'text-[#b45309]'
-                              : line.level === 'info'
-                                ? 'text-black/55'
-                                : 'text-[#0b1220]'
-                        : line.kind === 'error'
-                          ? 'text-[#ff7b72]'
-                          : line.level === 'error'
-                            ? 'text-[#ff7b72]'
-                            : line.level === 'warn'
-                              ? 'text-[#ffcc66]'
-                              : line.level === 'info'
-                                ? 'text-[#a2aabc]'
-                                : 'text-[#d7dce2]';
+                      const tone =
+                        line.kind === 'error' || line.level === 'error'
+                          ? 'error'
+                          : line.level === 'warn'
+                            ? 'warn'
+                            : line.level === 'info' || line.level === 'debug'
+                              ? 'muted'
+                              : 'default';
+                      const rowClass =
+                        tone === 'error'
+                          ? 'bg-error-soft text-error border-error'
+                          : tone === 'warn'
+                            ? 'bg-warn-soft text-warn border-warn'
+                            : tone === 'muted'
+                              ? 'text-fg-2 border-transparent'
+                              : 'text-fg border-transparent';
                       return (
-                        <li key={idx} className={`whitespace-pre-wrap wrap-break-word ${color}`}>
-                          <span className={['mr-2 select-none', isLight ? 'text-black/40' : 'text-[#6679a4]'].join(' ')}>
-                            [{formatTime(line.ts)}]
-                          </span>
-                          {line.text}
+                        <li
+                          key={idx}
+                          className={`grid grid-cols-[auto_minmax(0,1fr)] gap-3 border-l-2 pl-[10px] pr-3 py-0.5 ${rowClass}`}
+                        >
+                          <span className="select-none text-fg-3 tabular-nums">{formatTime(line.ts)}</span>
+                          <span className="whitespace-pre-wrap wrap-break-word">{line.text}</span>
                         </li>
                       );
                     })}
                   </ul>
                 )}
               </div>
-            </div>
+            </section>
 
             {isDev && (
               <div
-                className={[
-                  'h-4 shrink-0 flex items-center justify-center',
-                ].join(' ')}
+                className="group h-3 shrink-0 flex items-center justify-center cursor-row-resize"
                 onPointerDown={(e) => {
                   e.preventDefault();
                   setIsDraggingSplit(true);
@@ -1024,91 +949,53 @@ export function JSCompilerPane() {
               >
                 <div
                   className={[
-                    'h-1.5 w-20 rounded-full border cursor-row-resize transition-colors',
-                    isLight
-                      ? 'border-black/10 bg-black/[0.08] hover:bg-black/[0.14]'
-                      : 'border-white/15 bg-white/[0.15] hover:bg-white/[0.24]',
+                    'h-1 w-10 rounded-full transition-colors',
+                    isDraggingSplit ? 'bg-accent' : 'bg-line-strong group-hover:bg-fg-3',
                   ].join(' ')}
                 />
               </div>
             )}
 
             {isDev && (
-              <div
+              <section
                 style={{ flexBasis: `${100 - outputSplitPercent}%` }}
-                className={[
-                  'min-h-0 rounded-xl border overflow-hidden flex flex-col',
-                  isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#171c28]',
-                  'shadow-[0_16px_40px_-32px_rgba(0,0,0,0.9)]',
-                ].join(' ')}
+                className={PANE}
+                aria-label="Time complexity"
               >
-                <div
-                  className={[
-                    'min-h-10 p-3 sm:py-0 flex items-center justify-between gap-2 border-b',
-                    isLight ? 'border-black/10 bg-white/70' : 'border-white/10 bg-black/10',
-                  ].join(' ')}
-                >
-                  <div className={['text-[12px] font-medium truncate', isLight ? 'text-[#0b1220]/75' : 'text-[#d7dce2]/90'].join(' ')}>
-                    Time Complexity Indicator
+                <div className={PANE_HEADER}>
+                  <div className="min-w-0 h-8 px-2 flex items-center gap-2 text-[13px]">
+                    <Gauge size={16} className="shrink-0 text-fg-3" />
+                    <span className="font-medium truncate">Time complexity</span>
+                    <span className="shrink-0 rounded-md border border-line px-1.5 py-px text-[11px] text-fg-3">Beta</span>
                   </div>
-                  <span
-                    className={[
-                      'shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-                      isLight ? 'bg-[#fef3c7] text-[#92400e] border border-[#f59e0b]/30' : 'bg-[#78350f] text-[#fde68a] border border-[#f59e0b]/30',
-                    ].join(' ')}
-                  >
-                    Beta
-                  </span>
                 </div>
 
-                <div className="flex-1 min-h-0 overflow-auto px-3 py-2 text-[12px] leading-5">
+                <div className="flex-1 min-h-0 overflow-auto p-2 text-[13px]">
                   {complexityEntries.length === 0 ? (
-                    <div className={isLight ? 'text-black/50' : 'text-[#8695b7]'}>
-                      No function complexity data yet. Run code to analyze.
+                    <div className="h-full min-h-20 grid place-items-center px-6 text-center text-[13px] text-fg-3">
+                      Run your code to estimate the complexity of each function.
                     </div>
                   ) : (
-                    <ul className="space-y-2">
-                      {complexityEntries.map((entry) => {
-                        const bandClass = isLight
-                          ? entry.complexity === 'O(1)'
-                            ? 'bg-[#dcfce7] text-[#166534]'
-                            : entry.complexity === 'O(n)'
-                              ? 'bg-[#dbeafe] text-[#1d4ed8]'
-                              : entry.complexity === 'O(n^2)'
-                                ? 'bg-[#fef3c7] text-[#92400e]'
-                                : 'bg-[#fee2e2] text-[#991b1b]'
-                          : entry.complexity === 'O(1)'
-                            ? 'bg-[#14532d] text-[#bbf7d0]'
-                            : entry.complexity === 'O(n)'
-                              ? 'bg-[#1e3a8a] text-[#bfdbfe]'
-                              : entry.complexity === 'O(n^2)'
-                                ? 'bg-[#78350f] text-[#fde68a]'
-                                : 'bg-[#7f1d1d] text-[#fecaca]';
-
-                        return (
-                          <li
-                            key={entry.name}
-                            className={[
-                              'rounded-md border p-2',
-                              isLight ? 'border-black/10 bg-black/[0.015]' : 'border-white/10 bg-black/10',
-                            ].join(' ')}
+                    <ul className="divide-y divide-line">
+                      {complexityEntries.map((entry) => (
+                        <li key={entry.name} className="px-2 py-2.5 flex items-start justify-between gap-4">
+                          <div className="min-w-0">
+                            <div className="font-mono text-[12.5px] font-medium truncate">{entry.name}</div>
+                            <div className="mt-0.5 text-[12.5px] text-fg-2">{entry.reason}</div>
+                          </div>
+                          <span
+                            className={`shrink-0 rounded-md px-1.5 py-0.5 font-mono text-[11.5px] font-medium ${
+                              COMPLEXITY_BADGE[entry.complexity] ?? 'bg-error-soft text-error'
+                            }`}
                           >
-                            <div className="flex items-center justify-between gap-2">
-                              <span className={['font-mono font-semibold', isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'].join(' ')}>
-                                {entry.name}
-                              </span>
-                              <span className={`px-2 py-0.5 rounded text-[11px] font-medium ${bandClass}`}>{entry.complexity}</span>
-                            </div>
-                            <div className={['mt-1', isLight ? 'text-black/65' : 'text-[#a2aabc]'].join(' ')}>
-                              {entry.reason}
-                            </div>
-                          </li>
-                        );
-                      })}
+                            {entry.complexity}
+                          </span>
+                        </li>
+                      ))}
                     </ul>
                   )}
                 </div>
-              </div>
+              </section>
             )}
 
             {/* Hidden-ish runner: sandboxed iframe */}
@@ -1122,122 +1009,89 @@ export function JSCompilerPane() {
             />
           </div>
         </div>
-      </div>
+      </main>
 
-      {shortcutsOpen && (
-        <div
-          className="fixed inset-0 z-50 grid place-items-center"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Keyboard shortcuts"
-          onMouseDown={() => setShortcutsOpen(false)}
-        >
-          <div className="absolute inset-0 bg-black/55" />
-          <div
-            className={[
-              'relative w-[min(560px,calc(100vw-24px))] rounded-xl border shadow-2xl',
-              isLight ? 'border-black/10 bg-white' : 'border-white/10 bg-[#1d2433]',
-            ].join(' ')}
-            onMouseDown={(e) => e.stopPropagation()}
+      <AnimatePresence>
+        {shortcutsOpen && (
+          <motion.div
+            className="fixed inset-0 z-50 grid place-items-center p-3"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Keyboard shortcuts"
+            onMouseDown={() => setShortcutsOpen(false)}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: reduceMotion ? 0 : 0.15 }}
           >
-            <div className={['flex items-center justify-between px-4 py-3 border-b', isLight ? 'border-black/10' : 'border-white/10'].join(' ')}>
-              <div className="min-w-0">
-                <div className={['text-sm font-semibold', isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'].join(' ')}>
-                  Keyboard shortcuts
-                </div>
-                <div className={['text-[12px]', isLight ? 'text-black/50' : 'text-[#8695b7]'].join(' ')}>
-                  Press Esc to close
-                </div>
-              </div>
-              <button
-                className={[
-                  'h-7 w-7 grid place-items-center rounded',
-                  isLight ? 'hover:bg-black/5 text-black/60' : 'hover:bg-white/10 text-[#a2aabc]',
-                ].join(' ')}
-                onClick={() => setShortcutsOpen(false)}
-                aria-label="Close shortcuts"
-              >
-                ×
-              </button>
-            </div>
-
-            <div className="px-4 py-3 text-[13px]">
-              <div className="space-y-4">
-                <div>
-                  <div className={['text-[11px] font-semibold uppercase tracking-wide', isLight ? 'text-black/50' : 'text-[#8695b7]'].join(' ')}>
-                    App
-                  </div>
-                  <div className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Run code</div>
-                    <div
-                      className={[
-                        'font-mono flex items-center gap-1',
-                        isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]',
-                      ].join(' ')}
-                    >
-                      {isMac ? <CommandIcon size={14} /> : <span>Ctrl</span>}
-                      <span>Enter</span>
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Clear output</div>
-                    <div
-                      className={[
-                        'font-mono flex items-center gap-1',
-                        isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]',
-                      ].join(' ')}
-                    >
-                      {isMac ? <CommandIcon size={14} /> : <span>Ctrl</span>}
-                      <span>L</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className={['text-[11px] font-semibold uppercase tracking-wide', isLight ? 'text-black/50' : 'text-[#8695b7]'].join(' ')}>
-                    Editor (Monaco)
-                  </div>
-                  <div className="mt-2 grid grid-cols-[1fr_auto] gap-x-4 gap-y-2">
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Command palette</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? 'F1 or ⇧⌘ P' : 'F1 or Ctrl Shift P'}
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Find</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⌘ F' : 'Ctrl F'}
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Replace</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⌥⌘ F' : 'Ctrl H'}
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Go to line</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>Ctrl G</div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Format document</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⇧⌥ F' : 'Alt Shift F'}
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Toggle line comment</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>
-                      {isMac ? '⌘ /' : 'Ctrl /'}
-                    </div>
-
-                    <div className={isLight ? 'text-[#0b1220]' : 'text-[#d7dce2]'}>Autocomplete / suggestions</div>
-                    <div className={['font-mono', isLight ? 'text-[#2563eb]' : 'text-[#ffcc66]'].join(' ')}>Ctrl Space</div>
-                  </div>
-                </div>
+            <div className="absolute inset-0 bg-black/40 backdrop-blur-[2px]" />
+            <motion.div
+              className="relative w-full max-w-[440px] rounded-xl border border-line bg-surface shadow-2xl"
+              onMouseDown={(e) => e.stopPropagation()}
+              initial={reduceMotion ? false : { opacity: 0, y: 8, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.98 }}
+              transition={{ type: 'spring', stiffness: 420, damping: 32 }}
+            >
+              <div className="flex items-center justify-between pl-5 pr-3 h-14 border-b border-line">
+                <h2 className="text-[15px] font-semibold tracking-tight">Keyboard shortcuts</h2>
+                <button
+                  className={`${ICON_BUTTON} w-8`}
+                  onClick={() => setShortcutsOpen(false)}
+                  aria-label="Close shortcuts"
+                  autoFocus
+                >
+                  <X size={16} />
+                </button>
               </div>
 
-              <div className={['mt-4 text-[12px]', isLight ? 'text-black/55' : 'text-[#8695b7]'].join(' ')}>
-                Note: code runs in a sandboxed iframe. Infinite loops can still freeze the tab (no “stop” yet).
+              <div className="px-5 py-4 space-y-5 text-[13px]">
+                {[
+                  {
+                    group: 'App',
+                    items: [
+                      { label: 'Run code', keys: [<ModKey key="m" isMac={isMac} />, 'Enter'] },
+                      { label: 'Clear output', keys: [<ModKey key="m" isMac={isMac} />, 'L'] },
+                    ],
+                  },
+                  {
+                    group: 'Editor',
+                    items: [
+                      { label: 'Command palette', keys: isMac ? ['⇧', '⌘', 'P'] : ['Ctrl', 'Shift', 'P'] },
+                      { label: 'Find', keys: [<ModKey key="m" isMac={isMac} />, 'F'] },
+                      { label: 'Replace', keys: isMac ? ['⌥', '⌘', 'F'] : ['Ctrl', 'H'] },
+                      { label: 'Go to line', keys: ['Ctrl', 'G'] },
+                      { label: 'Format document', keys: isMac ? ['⇧', '⌥', 'F'] : ['Shift', 'Alt', 'F'] },
+                      { label: 'Toggle line comment', keys: [<ModKey key="m" isMac={isMac} />, '/'] },
+                      { label: 'Trigger suggestions', keys: ['Ctrl', 'Space'] },
+                    ],
+                  },
+                ].map((section) => (
+                  <div key={section.group}>
+                    <h3 className="mb-1.5 text-[12px] font-medium text-fg-3">{section.group}</h3>
+                    <dl>
+                      {section.items.map((item) => (
+                        <div key={item.label} className="flex items-center justify-between gap-4 py-1.5">
+                          <dt className="text-fg">{item.label}</dt>
+                          <dd className="flex items-center gap-1">
+                            {item.keys.map((k, i) => (
+                              <Kbd key={i}>{k}</Kbd>
+                            ))}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))}
               </div>
-            </div>
-          </div>
-        </div>
-      )}
+
+              <p className="px-5 py-3 border-t border-line text-[12px] text-fg-3">
+                Code runs in a sandboxed iframe. Infinite loops can still freeze the tab.
+              </p>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

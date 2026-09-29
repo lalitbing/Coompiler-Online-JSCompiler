@@ -1,4 +1,4 @@
-import Editor, { type Monaco, type OnChange } from '@monaco-editor/react';
+import Editor, { type Monaco, type OnChange, type OnMount } from '@monaco-editor/react';
 
 type MonacoPaneProps = {
   path: string;
@@ -51,6 +51,64 @@ export function MonacoPane({
   const beforeMount = (monaco: Monaco) => {
     if (didConfigureMonaco) return;
     didConfigureMonaco = true;
+
+    // Editor chrome matches the app tokens in src/index.css (--surface, --border, --accent).
+    monaco.editor.defineTheme('coompiler-dark', {
+      base: 'vs-dark',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '6b6b75', fontStyle: 'italic' },
+        { token: 'string', foreground: '9ece8a' },
+        { token: 'keyword', foreground: '8fb3ff' },
+        { token: 'number', foreground: 'e0af68' },
+      ],
+      colors: {
+        'editor.background': '#131316',
+        'editor.foreground': '#ececef',
+        'editorLineNumber.foreground': '#45454d',
+        'editorLineNumber.activeForeground': '#a1a1aa',
+        'editor.lineHighlightBackground': '#1a1a1e',
+        'editor.lineHighlightBorder': '#00000000',
+        'editor.selectionBackground': '#3b82f640',
+        'editorCursor.foreground': '#3b82f6',
+        'editorIndentGuide.background1': '#232327',
+        'editorWidget.background': '#1a1a1e',
+        'editorWidget.border': '#303036',
+        'editorSuggestWidget.background': '#1a1a1e',
+        'editorSuggestWidget.border': '#303036',
+        'editorSuggestWidget.selectedBackground': '#3b82f62e',
+        'scrollbarSlider.background': '#ffffff14',
+        'scrollbarSlider.hoverBackground': '#ffffff24',
+      },
+    });
+    monaco.editor.defineTheme('coompiler-light', {
+      base: 'vs',
+      inherit: true,
+      rules: [
+        { token: 'comment', foreground: '8a8a94', fontStyle: 'italic' },
+        { token: 'string', foreground: '3f7a1c' },
+        { token: 'keyword', foreground: '1d4ed8' },
+        { token: 'number', foreground: 'a45a00' },
+      ],
+      colors: {
+        'editor.background': '#fcfcfc',
+        'editor.foreground': '#18181b',
+        'editorLineNumber.foreground': '#c4c4ca',
+        'editorLineNumber.activeForeground': '#52525b',
+        'editor.lineHighlightBackground': '#f4f4f5',
+        'editor.lineHighlightBorder': '#00000000',
+        'editor.selectionBackground': '#2563eb2e',
+        'editorCursor.foreground': '#2563eb',
+        'editorIndentGuide.background1': '#e4e4e7',
+        'editorWidget.background': '#ffffff',
+        'editorWidget.border': '#d4d4d8',
+        'editorSuggestWidget.background': '#ffffff',
+        'editorSuggestWidget.border': '#d4d4d8',
+        'editorSuggestWidget.selectedBackground': '#2563eb1f',
+        'scrollbarSlider.background': '#18181b14',
+        'scrollbarSlider.hoverBackground': '#18181b24',
+      },
+    });
 
     // Make TS/TSX feel closer to a typical React/Vite project.
     monaco.languages.typescript.typescriptDefaults.setCompilerOptions({
@@ -109,6 +167,11 @@ declare module 'vite/client' {}
     monaco.languages.typescript.typescriptDefaults.addExtraLib(viteStub, 'file:///node_modules/vite/client.d.ts');
   };
 
+  // Geist Mono is a web font; re-measure once it loads so the cursor lines up.
+  const handleMount: OnMount = (_editor, monaco) => {
+    document.fonts?.ready.then(() => monaco.editor.remeasureFonts());
+  };
+
   return (
     <div className="h-full w-full min-w-0">
       <Editor
@@ -116,15 +179,21 @@ declare module 'vite/client' {}
         value={value}
         onChange={handleChange}
         beforeMount={beforeMount}
+        onMount={handleMount}
         language={languageFromPath(path)}
-        theme={theme === 'light' ? 'vs' : 'vs-dark'}
+        theme={theme === 'light' ? 'coompiler-light' : 'coompiler-dark'}
         options={{
           readOnly: !!readOnly,
           automaticLayout: true,
-          fontFamily:
-            "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
-          fontSize: 13,
-          lineHeight: 20,
+          fontFamily: "'Geist Mono Variable', ui-monospace, SFMono-Regular, Menlo, monospace",
+          fontSize: 13.5,
+          lineHeight: 22,
+          padding: { top: 14, bottom: 14 },
+          lineNumbersMinChars: 3,
+          renderLineHighlightOnlyWhenFocus: true,
+          overviewRulerLanes: 0,
+          hideCursorInOverviewRuler: true,
+          fontLigatures: false,
           minimap: { enabled: false },
           scrollBeyondLastLine: false,
           smoothScrolling: true,
@@ -133,7 +202,7 @@ declare module 'vite/client' {}
           tabSize: 2,
           insertSpaces: true,
           renderWhitespace: 'selection',
-          renderLineHighlight: 'all',
+          renderLineHighlight: 'line',
           scrollbar: { verticalScrollbarSize: 10, horizontalScrollbarSize: 10 },
           quickSuggestions: suggestionsEnabled ? { other: true, comments: false, strings: false } : false,
           suggestOnTriggerCharacters: suggestionsEnabled,
